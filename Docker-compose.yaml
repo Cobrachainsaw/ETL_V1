@@ -22,20 +22,22 @@ services:
     image: bitnami/kafka:latest
     container_name: kafka
     ports:
-      - "9092:9092"
-      - "9093:9093"
+      - "9092:9092"  # Broker port
+      - "9093:9093"  # Controller port
     environment:
-      KAFKA_KRAFT_CLUSTER_ID: "kraft-cluster-1"
+      KAFKA_KRAFT_CLUSTER_ID: kraft-cluster-1
       KAFKA_CFG_NODE_ID: 1
       KAFKA_CFG_PROCESS_ROLES: "broker,controller"
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
-      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://host.docker.internal:9092"
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       ALLOW_PLAINTEXT_LISTENER: "yes"
     networks:
       - ecg_net
+    volumes:
+      - kafka-data:/bitnami/kafka
 
   # — Spark with Iceberg support —
   spark:
@@ -46,6 +48,7 @@ services:
     command: ["-c", "tail -f /dev/null"]
     depends_on:
       - minio
+      - kafka
     environment:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
@@ -84,6 +87,7 @@ services:
 
 volumes:
   minio-data:
+  kafka-data:
 
 networks:
   ecg_net:

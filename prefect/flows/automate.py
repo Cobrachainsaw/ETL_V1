@@ -13,5 +13,5 @@ def run_spark_job(script_name):
 
 @flow(name="ECG ETL Batch Pipeline")
 def ecg_batch_pipeline():
-    run_spark_job("raw_writer.py")
-    run_spark_job("feature_extractor.py")
+    run_spark_job("batch_write.py")
+    run_spark_job("etl.py")

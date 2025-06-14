@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import numpy as np
 import wfdb
 import datetime
-from kafka import KafkaProducer
+from aiokafka import AIOKafkaProducer
 
 # --- Configuration ---
 load_dotenv()
@@ -42,30 +42,34 @@ def load_ecg_data(file_path):
 
 # --- Async Data Publisher to Kafka ---
 async def generate_and_publish_data(signals, labels):
-    producer = KafkaProducer(
-        bootstrap_servers=KAFKA_BROKER,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        acks='all'  # Ensure write acknowledgment
+    producer = AIOKafkaProducer(
+        bootstrap_servers='host.docker.internal:9092',
+        value_serializer=lambda v: json.dumps(v).encode("utf-8")
     )
 
-    count = 0
-    while True:
-        try:
-            data = {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "ecg_signal": signals[count].tolist(),
-                "label": labels[count]
-            }
+    await producer.start()
+    try:
+        count = 0
+        while True:
+            try:
+                data = {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "ecg_signal": signals[count].tolist(),
+                    "label": labels[count]
+                }
 
-            producer.send(KAFKA_TOPIC, value=data)
-            print(f"📤 Published to Kafka: {data['timestamp']}")
+                await producer.send_and_wait(KAFKA_TOPIC, value=data)
+                print(f"📤 Published to Kafka: {data['timestamp']}")
 
-            count = (count + 1) % len(signals)
-            await asyncio.sleep(5)
+                count = (count + 1) % len(signals)
+                await asyncio.sleep(5)
 
-        except Exception as e:
-            print(f"❌ Error publishing to Kafka: {e}")
-            await asyncio.sleep(3)
+            except Exception as e:
+                print(f"❌ Error publishing to Kafka: {e}")
+                await asyncio.sleep(3)
+
+    finally:
+        await producer.stop()
 
 # --- Main ---
 if __name__ == "__main__":
