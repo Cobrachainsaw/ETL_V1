@@ -1,0 +1,29 @@
+name: ecg-etl-flow
+prefect-version: 2.14.18
+
+build:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /app/prefect
+
+push:
+  - prefect_aws.deployments.steps.push_to_s3:
+      bucket: "prefect-flows"                 # You must create this bucket in MinIO first
+      key: "ecg-etl-flow/${flow_name}.prefect"
+      endpoint_url: "http://minio:9000"       # Internal Docker hostname for MinIO
+      aws_access_key_id: "minioadmin"
+      aws_secret_access_key: "minioadmin"
+      region_name: "us-east-1"
+
+deployments:
+  - name: ecg-batch-etl
+    entrypoint: flows/automate.py:ecg_batch_pipeline
+    version: 1.0
+    tags: [ecg, batch]
+    description: "ETL pipeline to write raw ECG and extract features"
+    work_pool:
+      name: ecg_queue
+      work_queue_name: ecg_queue
+      type: process
+    schedule:
+      cron: "* * * * *"
+      timezone: Asia/Kolkata

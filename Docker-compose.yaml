@@ -17,34 +17,33 @@ services:
     networks:
       - ecg_net
 
-  # — Zookeeper for Kafka —
-  zookeeper:
-    image: bitnami/zookeeper:latest
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    networks:
-      - ecg_net
-
-  # — Kafka for message queuing —
+  # — Kafka using KRaft mode —
   kafka:
     image: bitnami/kafka:latest
     container_name: kafka
-    depends_on:
-      - zookeeper
     ports:
       - "9092:9092"
+      - "9093:9093"
     environment:
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_KRAFT_CLUSTER_ID: "kraft-cluster-1"
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       ALLOW_PLAINTEXT_LISTENER: "yes"
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
     networks:
       - ecg_net
 
   # — Spark with Iceberg support —
   spark:
-    build: ./spark  # Contains Dockerfile using tabulario/spark-iceberg:latest
+    build:
+      context: "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark"
     container_name: spark
+    entrypoint: ["/bin/bash"]
+    command: ["-c", "tail -f /dev/null"]
     depends_on:
       - minio
     environment:
@@ -52,33 +51,32 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
     volumes:
-      - ./spark/jobs:/app/spark_jobs
-      - ./spark/spark-submit.sh:/app/spark-submit.sh
+      - "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/jobs:/app/spark_jobs"
+      - "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/spark_submit.sh:/app/spark-submit.sh"
     networks:
       - ecg_net
 
-  # — Prefect Agent (executes flows) —
+  # — Prefect Agent —
   prefect:
-    image: prefecthq/prefect:2-python3.9
+    image: prefecthq/prefect:2.14.18-python3.9
     container_name: prefect
     depends_on:
       - api
-      - spark
     command: prefect agent start -q default
-    volumes:
-      - ./prefect:/app/prefect
-      - ./spark/jobs:/app/spark_jobs
-      - ./spark/spark-submit.sh:/app/spark-submit.sh
     environment:
-      PREFECT_API_URL: http://api:4200
+      PREFECT_API_URL: http://prefect-api:4200/api
+    volumes:
+      - "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/prefect:/app/prefect"
+      - "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/jobs:/app/spark_jobs"
+      - "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/spark_submit.sh:/app/spark-submit.sh"
     networks:
       - ecg_net
 
   # — Prefect API Server —
   api:
-    image: prefecthq/prefect:2
+    image: prefecthq/prefect:2.14.18-python3.9
     container_name: prefect-api
-    command: prefect orion start --host 0.0.0.0
+    command: prefect server start --host 0.0.0.0
     ports:
       - "4200:4200"
     networks:
@@ -86,7 +84,6 @@ services:
 
 volumes:
   minio-data:
-  warehouse:
 
 networks:
   ecg_net:
