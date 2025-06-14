@@ -10,8 +10,10 @@ from scipy.signal import butter, filtfilt
 from scipy.stats import entropy, skew, kurtosis
 
 OFFSET_PATH = "s3a://ecg-iceberg/offsets/last_offset.json"
-NAMESPACE = "my_catalog.db"
-TABLE_NAME = f"{NAMESPACE}.ecg_features"
+CATALOG = "my_catalog"
+NAMESPACE = "db"
+TABLE = "ecg_features"
+TABLE_NAME = f"{CATALOG}.{NAMESPACE}.{TABLE}"
 
 # ---------- Define Schema ----------
 schema = StructType([
@@ -24,29 +26,47 @@ schema = StructType([
 spark = (
     SparkSession.builder
     .appName("ECGFeatureExtractorBatch")
-    .config("spark.sql.catalog.my_catalog", "org.apache.iceberg.spark.SparkCatalog")
-    .config("spark.sql.catalog.my_catalog.type", "hadoop")
-    .config("spark.sql.catalog.my_catalog.warehouse", "s3a://ecg-iceberg")
+    .config(f"spark.sql.catalog.{CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
+    .config(f"spark.sql.catalog.{CATALOG}.type", "hadoop")
+    .config(f"spark.sql.catalog.{CATALOG}.warehouse", "s3a://ecg-iceberg")
     .config("spark.hadoop.fs.s3a.endpoint", "http://minio:9000")
     .config("spark.hadoop.fs.s3a.access.key", "minioadmin")
     .config("spark.hadoop.fs.s3a.secret.key", "minioadmin")
     .config("spark.hadoop.fs.s3a.path.style.access", "true")
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .getOrCreate()
 )
 
 sc = spark.sparkContext
 hadoop_conf = sc._jsc.hadoopConfiguration()
-fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
-offset_file_path = sc._jvm.org.apache.hadoop.fs.Path(OFFSET_PATH)
+hadoop_conf.set("fs.s3a.endpoint", "http://minio:9000")
+hadoop_conf.set("fs.s3a.access.key", "minioadmin")
+hadoop_conf.set("fs.s3a.secret.key", "minioadmin")
+hadoop_conf.set("fs.s3a.path.style.access", "true")
+hadoop_conf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
 
 # ---------- Load Last Offset ----------
+from py4j.java_gateway import java_import
+java_import(sc._jvm, "java.net.URI")
+uri = sc._jvm.URI("s3a://ecg-iceberg")
+fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
+offset_file_path = sc._jvm.org.apache.hadoop.fs.Path(OFFSET_PATH)
+
 if fs.exists(offset_file_path):
-    with fs.open(offset_file_path) as f:
-        last_offset_json = json.loads(f.read().decode("utf-8"))
-        print("Loaded offset:", last_offset_json)
+    stream = fs.open(offset_file_path)
+    reader = sc._jvm.java.io.BufferedReader(sc._jvm.java.io.InputStreamReader(stream))
+    content = []
+    while True:
+        line = reader.readLine()
+        if line is None:
+            break
+        content.append(line)
+    reader.close()
+    last_offset_json = json.loads("\n".join(content))
+    print("✅ Loaded offset:", last_offset_json)
 else:
     last_offset_json = {"ecg-signals": {"0": 0}}
-    print("Using default offset:", last_offset_json)
+    print("ℹ️ Using default offset:", last_offset_json)
 
 starting_offsets = json.dumps(last_offset_json)
 
@@ -93,16 +113,13 @@ def extract_features(signal_series: pd.Series) -> pd.Series:
         nyq = 0.5 * fs
         b, a = butter(4, [0.5 / nyq, 45 / nyq], btype='band')
         filtered = filtfilt(b, a, segment)
-        coeffs = pywt.wavedec(filtered, 'db6', level=9)
-        coeffs[0] = coeffs[1] = coeffs[7] = coeffs[8] = coeffs[9] = np.zeros_like(coeffs[1])
-        denoised = pywt.waverec(coeffs, 'db6')
-        return wavelet_features(denoised) + teager_operator(denoised)
+        return wavelet_features(filtered) + teager_operator(filtered)
 
     return signal_series.apply(full_features)
 
 with_features = parsed_df.withColumn("features", extract_features(col("ecg_signal")))
-
 feature_cols = [f"feature_{i}" for i in range(54)]
+
 flattened_df = with_features.select(
     col("timestamp"), col("label"), col("partition"), col("offset"), *[
         col("features")[i].alias(feature_cols[i]) for i in range(54)
@@ -110,14 +127,15 @@ flattened_df = with_features.select(
 )
 
 # ---------- Create Namespace and Table if Needed ----------
-spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {NAMESPACE}")
+spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.{NAMESPACE}")
 
-# Create table schema (once)
-table_exists = spark._jsparkSession.catalog().tableExists(TABLE_NAME)
-if not table_exists:
+tables = spark.sql(f"SHOW TABLES IN {CATALOG}.{NAMESPACE}").collect()
+existing_tables = [row["tableName"] for row in tables]
+
+if TABLE not in existing_tables:
     cols = ",\n".join([f"{name} DOUBLE" for name in feature_cols])
     spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+        CREATE TABLE {TABLE_NAME} (
             timestamp STRING,
             label STRING,
             {cols}
@@ -139,12 +157,14 @@ latest_offsets = (
 
 offset_dict = {
     "ecg-signals": {
-        str(row["partition"]): row["offset"] + 1
+        str(row["partition"]): int(row["offset"]) + 1  # <-- convert numpy int64 to Python int here
         for _, row in latest_offsets.iterrows()
     }
 }
 
-with fs.create(offset_file_path, True) as out:
-    out.write(bytearray(json.dumps(offset_dict), "utf-8"))
+stream = fs.create(offset_file_path, True)
+writer = sc._jvm.java.io.OutputStreamWriter(stream)
+writer.write(json.dumps(offset_dict))
+writer.close()
 
 print("✅ Updated offset file:", offset_dict)

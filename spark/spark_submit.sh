@@ -9,7 +9,7 @@ SPARK_SUBMIT=$(which spark-submit)
   --name ecg_etl_job \
   --executor-memory 2g \
   --driver-memory 1g \
-  --packages "org.apache.iceberg:iceberg-spark-runtime-3.3_2.12:1.3.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0" \
+  --packages "org.apache.iceberg:iceberg-spark-runtime-3.3_2.12:1.3.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.11.1026" \
   --conf spark.sql.catalog.my_catalog=org.apache.iceberg.spark.SparkCatalog \
   --conf spark.sql.catalog.my_catalog.type=hadoop \
   --conf spark.sql.catalog.my_catalog.warehouse=s3a://ecg-iceberg \
