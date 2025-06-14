@@ -11,7 +11,7 @@ def run_spark_job(script_name):
         raise RuntimeError(f"Spark job {script_name} failed:\n{result.stderr}")
     print(result.stdout)
 
-@flow(name="ECG ETL Batch Pipeline")
+@flow(name="ecg_batch_pipeline")
 def ecg_batch_pipeline():
     run_spark_job("batch_write.py")
     run_spark_job("etl.py")

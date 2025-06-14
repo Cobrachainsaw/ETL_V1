@@ -2,19 +2,28 @@ name: ecg-etl-flow
 prefect-version: 2.14.18
 
 build:
-  - prefect.deployments.steps.set_working_directory:
-      directory: /app/prefect
+- prefect.deployments.steps.set_working_directory:
+    directory: /app/prefect
 
 deployments:
-  - name: ecg-batch-etl
-    entrypoint: flows/automate.py:ecg_batch_pipeline
-    version: 1.0
-    tags: [ecg, batch]
-    description: "ETL pipeline to write raw ECG and extract features"
-    work_pool:
-      name: ecg_queue
-      work_queue_name: ecg_queue
-      type: process
-    schedule:
-      cron: "* * * * *"
-      timezone: Asia/Kolkata
+- name: ecg-batch-etl
+  entrypoint: flows/automate.py:ecg_batch_pipeline
+  version: 1.0
+  tags:
+  - ecg
+  - batch
+  description: ETL pipeline to write raw ECG and extract features
+  work_pool:
+    name: ecg_queue
+    work_queue_name: ecg_queue
+    type: process
+    job_variables: {}
+  schedule:
+    cron: '* * * * *'
+    timezone: Asia/Kolkata
+    day_or: true
+    active: true
+  parameters: {}
+  pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /app/prefect

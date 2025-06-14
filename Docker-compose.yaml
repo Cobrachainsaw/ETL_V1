@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  # — PostgreSQL for Prefect API —
+  postgres:
+    image: postgres:15
+    container_name: prefect-postgres
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: prefect
+      POSTGRES_DB: prefect
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ecg_net
+
   # — MinIO for object storage —
   minio:
     image: minio/minio:latest
@@ -22,8 +35,8 @@ services:
     image: bitnami/kafka:latest
     container_name: kafka
     ports:
-      - "9092:9092"  # Broker port
-      - "9093:9093"  # Controller port
+      - "9092:9092"
+      - "9093:9093"
     environment:
       KAFKA_KRAFT_CLUSTER_ID: kraft-cluster-1
       KAFKA_CFG_NODE_ID: 1
@@ -34,10 +47,10 @@ services:
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       ALLOW_PLAINTEXT_LISTENER: "yes"
-    networks:
-      - ecg_net
     volumes:
       - kafka-data:/bitnami/kafka
+    networks:
+      - ecg_net
 
   # — Spark with Iceberg support —
   spark:
@@ -59,13 +72,37 @@ services:
     networks:
       - ecg_net
 
+  # — Prefect API Server —
+  api:
+    build:
+      context: "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/prefect"
+      dockerfile: Dockerfile.prefect
+    container_name: prefect-api
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:prefect@prefect-postgres:5432/prefect
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4200/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecg_net
+
   # — Prefect Agent —
   prefect:
-    image: prefecthq/prefect:2.14.18-python3.9
+    build:
+      context: "C:/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/prefect"
+      dockerfile: Dockerfile.prefect
     container_name: prefect
     depends_on:
-      - api
-    command: prefect agent start -q default
+      api:
+        condition: service_healthy
+    command: prefect agent start -q ecg_queue
     environment:
       PREFECT_API_URL: http://prefect-api:4200/api
     volumes:
@@ -75,19 +112,10 @@ services:
     networks:
       - ecg_net
 
-  # — Prefect API Server —
-  api:
-    image: prefecthq/prefect:2.14.18-python3.9
-    container_name: prefect-api
-    command: prefect server start --host 0.0.0.0
-    ports:
-      - "4200:4200"
-    networks:
-      - ecg_net
-
 volumes:
   minio-data:
   kafka-data:
+  postgres-data:
 
 networks:
   ecg_net:

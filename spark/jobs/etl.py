@@ -10,15 +10,17 @@ from scipy.signal import butter, filtfilt
 from scipy.stats import entropy, skew, kurtosis
 
 OFFSET_PATH = "s3a://ecg-iceberg/offsets/last_offset.json"
+NAMESPACE = "my_catalog.db"
+TABLE_NAME = f"{NAMESPACE}.ecg_features"
 
-# Define schema of incoming Kafka JSON
+# ---------- Define Schema ----------
 schema = StructType([
     StructField("timestamp", StringType()),
     StructField("label", StringType()),
     StructField("ecg_signal", ArrayType(DoubleType()))
 ])
 
-# Spark session
+# ---------- Create Spark Session ----------
 spark = (
     SparkSession.builder
     .appName("ECGFeatureExtractorBatch")
@@ -37,16 +39,18 @@ hadoop_conf = sc._jsc.hadoopConfiguration()
 fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
 offset_file_path = sc._jvm.org.apache.hadoop.fs.Path(OFFSET_PATH)
 
-# Load last offset from MinIO
+# ---------- Load Last Offset ----------
 if fs.exists(offset_file_path):
     with fs.open(offset_file_path) as f:
         last_offset_json = json.loads(f.read().decode("utf-8"))
+        print("Loaded offset:", last_offset_json)
 else:
-    last_offset_json = {"ecg-signals": {"0": 0}}  # Default to beginning for partition 0
+    last_offset_json = {"ecg-signals": {"0": 0}}
+    print("Using default offset:", last_offset_json)
 
 starting_offsets = json.dumps(last_offset_json)
 
-# ---------- Kafka Batch Read ----------
+# ---------- Read Kafka Batch ----------
 kafka_df = (
     spark.read
     .format("kafka")
@@ -57,10 +61,11 @@ kafka_df = (
     .load()
 )
 
-# ---------- Parse and Feature Extraction ----------
-parsed_df = kafka_df.selectExpr("CAST(value AS STRING) AS json", "topic", "partition", "offset")
-parsed_df = parsed_df.withColumn("data", from_json(col("json"), schema)).select("data.*", "topic", "partition", "offset")
+parsed_df = kafka_df.selectExpr("CAST(value AS STRING) AS json", "topic", "partition", "offset") \
+    .withColumn("data", from_json(col("json"), schema)) \
+    .select("data.*", "topic", "partition", "offset")
 
+# ---------- Feature Extraction ----------
 @pandas_udf("array<double>")
 def extract_features(signal_series: pd.Series) -> pd.Series:
     def teager_operator(segment):
@@ -104,8 +109,26 @@ flattened_df = with_features.select(
     ]
 )
 
+# ---------- Create Namespace and Table if Needed ----------
+spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {NAMESPACE}")
+
+# Create table schema (once)
+table_exists = spark._jsparkSession.catalog().tableExists(TABLE_NAME)
+if not table_exists:
+    cols = ",\n".join([f"{name} DOUBLE" for name in feature_cols])
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+            timestamp STRING,
+            label STRING,
+            {cols}
+        )
+        USING iceberg
+    """)
+    print("✅ Created Iceberg table.")
+
 # ---------- Write to Iceberg ----------
-flattened_df.drop("partition", "offset").writeTo("my_catalog.db.ecg_features").append()
+flattened_df.drop("partition", "offset").writeTo(TABLE_NAME).append()
+print("✅ Appended batch to Iceberg table.")
 
 # ---------- Save Latest Offset ----------
 latest_offsets = (
@@ -116,11 +139,12 @@ latest_offsets = (
 
 offset_dict = {
     "ecg-signals": {
-        str(row["partition"]): row["offset"] + 1  # +1 for next batch
+        str(row["partition"]): row["offset"] + 1
         for _, row in latest_offsets.iterrows()
     }
 }
 
-# Save back to MinIO
 with fs.create(offset_file_path, True) as out:
     out.write(bytearray(json.dumps(offset_dict), "utf-8"))
+
+print("✅ Updated offset file:", offset_dict)
