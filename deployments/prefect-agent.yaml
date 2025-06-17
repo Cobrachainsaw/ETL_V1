@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: prefect-agent
-          image: cobrachainsaw/prefect-etl:latest  # Use the same image as in Docker Compose
+          image: cobrachainsaw/prefect-etl:latest
           command: ["prefect", "agent", "start", "-q", "ecg_queue"]
           env:
             - name: PREFECT_API_URL
@@ -25,20 +25,19 @@ spec:
           volumeMounts:
             - name: spark-jobs
               mountPath: /app/spark_jobs
-            - name: spark-submit
-              mountPath: /app/spark-submit.sh
-              subPath: spark-submit.sh
+            - name: spark-dir
+              mountPath: /app/scripts
             - name: docker-sock
               mountPath: /var/run/docker.sock
       volumes:
         - name: spark-jobs
           hostPath:
-            path: /mnt/c/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/jobs
+            path: /mnt/etl/spark/jobs
             type: Directory
-        - name: spark-submit
+        - name: spark-dir
           hostPath:
-            path: /mnt/c/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/spark_submit.sh
-            type: File
+            path: /mnt/etl/spark
+            type: Directory
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock

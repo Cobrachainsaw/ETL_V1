@@ -18,7 +18,8 @@ spec:
       containers:
         - name: spark
           image: cobrachainsaw/spark-etl:latest
-          command: ["/bin/bash", "-c", "tail -f /dev/null"]
+          command:
+            ["/bin/bash", "-c", "/app/spark-submit.sh"]
           env:
             - name: AWS_ACCESS_KEY_ID
               value: minioadmin
@@ -29,13 +30,8 @@ spec:
           volumeMounts:
             - name: spark-jobs
               mountPath: /app/spark_jobs
-            - name: spark-submit
-              mountPath: /app/spark-submit.sh
-              subPath: spark-submit.sh
       volumes:
         - name: spark-jobs
-          configMap:
-            name: spark-jobs-config
-        - name: spark-submit
-          configMap:
-            name: spark-submit-config
+          hostPath:
+            path: /mnt/etl/spark/jobs
+            type: Directory
