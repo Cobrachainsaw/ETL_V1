@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prefect-agent
+  namespace: ecg
+  labels:
+    app: prefect-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prefect-agent
+  template:
+    metadata:
+      labels:
+        app: prefect-agent
+    spec:
+      containers:
+        - name: prefect-agent
+          image: cobrachainsaw/prefect-etl:latest  # Use the same image as in Docker Compose
+          command: ["prefect", "agent", "start", "-q", "ecg_queue"]
+          env:
+            - name: PREFECT_API_URL
+              value: http://prefect-api.ecg.svc.cluster.local:4200/api
+          volumeMounts:
+            - name: spark-jobs
+              mountPath: /app/spark_jobs
+            - name: spark-submit
+              mountPath: /app/spark-submit.sh
+              subPath: spark-submit.sh
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: spark-jobs
+          hostPath:
+            path: /mnt/c/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/jobs
+            type: Directory
+        - name: spark-submit
+          hostPath:
+            path: /mnt/c/Users/vinay/OneDrive/Documents/GitHub/ETL_V1/spark/spark_submit.sh
+            type: File
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: spark
-          image: cobrachainsaw/spark-etl:latest  # <-- Replace with your actual image name (e.g., built via Dockerfile)
+          image: cobrachainsaw/spark-etl:latest
           command: ["/bin/bash", "-c", "tail -f /dev/null"]
           env:
             - name: AWS_ACCESS_KEY_ID
