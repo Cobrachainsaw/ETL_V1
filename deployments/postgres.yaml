@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: ecg
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: standard  # Adjust if your cluster uses a different StorageClass
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ecg
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ecg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          env:
+            - name: POSTGRES_USER
+              value: "prefect"
+            - name: POSTGRES_PASSWORD
+              value: "prefect"
+            - name: POSTGRES_DB
+              value: "prefect"
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc

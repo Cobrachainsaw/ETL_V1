@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark
+  namespace: ecg
+  labels:
+    app: spark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark
+  template:
+    metadata:
+      labels:
+        app: spark
+    spec:
+      containers:
+        - name: spark
+          image: cobrachainsaw/spark-etl:latest  # <-- Replace with your actual image name (e.g., built via Dockerfile)
+          command: ["/bin/bash", "-c", "tail -f /dev/null"]
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: minioadmin
+            - name: AWS_SECRET_ACCESS_KEY
+              value: minioadmin
+            - name: AWS_REGION
+              value: us-east-1
+          volumeMounts:
+            - name: spark-jobs
+              mountPath: /app/spark_jobs
+            - name: spark-submit
+              mountPath: /app/spark-submit.sh
+              subPath: spark-submit.sh
+      volumes:
+        - name: spark-jobs
+          configMap:
+            name: spark-jobs-config
+        - name: spark-submit
+          configMap:
+            name: spark-submit-config
